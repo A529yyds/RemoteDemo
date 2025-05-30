@@ -1,12 +1,3 @@
-#pragma once
-
-//-----------------------------------------------------------------------------------------------------------
-//
-// Copyright (C) 2023-2024 Vizrt NDI AB. All rights reserved.
-//
-// This file is part of the NDI Advanced SDK and may not be distributed.
-//
-//-----------------------------------------------------------------------------------------------------------
-
-// This is a stub for backwards compatibility.
-#include "Processing.NDI.Advanced.h"
+version https://git-lfs.github.com/spec/v1
+oid sha256:c51d8d3cf17e8b1a1b616301aa0bde68550ccd26168962d067a4ea28e3776f0e
+size 475

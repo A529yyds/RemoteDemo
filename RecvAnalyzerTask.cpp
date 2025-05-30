@@ -12,8 +12,11 @@ RecvAnalyzerTask::RecvAnalyzerTask(QObject *obj): QThread(obj)
 
 RecvAnalyzerTask::~RecvAnalyzerTask()
 {
+    wait(50);
     if(m_OptFFmpeg)
+    {
         m_OptFFmpeg->CleanDecoder();
+    }
     DELETE(m_OptFFmpeg);
     DELETE(m_pRecv);
 }
@@ -27,6 +30,7 @@ void RecvAnalyzerTask::stop()
 void RecvAnalyzerTask::run()
 {
     m_OptFFmpeg = new OptFFmpeg(W_4K, H_4K, this);
+    m_OptFFmpeg->OpenFile(false);
     m_pRecv = new Receiver(this);
     NDIlib_video_frame_v2_t frame;
     QImage img;
@@ -52,12 +56,10 @@ void RecvAnalyzerTask::run()
 //                    m_OptFFmpeg->CacheWrite(f);
                 }
                 m_OptFFmpeg->WriteFrames2File(iSize, f.data(), false);
-//                m_OptFFmpeg->DecodeFrame(pData, iSize, img);
+                img = m_OptFFmpeg->DecodeFrame(pData, iSize);
                 emit signalRecvImage(img);
             }
         }
         m_OptFFmpeg->CloseFile(false);
-
-//        m_OptFFmpeg->Cache2File("recvData.h265");
     }
 }

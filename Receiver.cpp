@@ -1,7 +1,8 @@
 #include "Receiver.h"
 #include <QThread>
 #include <QDebug>
-
+#include <unordered_map>
+#include <string>
 Receiver::Receiver(QObject *obj) : QObject(obj)
 {
     if (!NDIlib_initialize())
@@ -13,6 +14,8 @@ Receiver::Receiver(QObject *obj) : QObject(obj)
     if (!finder) return;
     uint32_t no_sources = 0;
     const NDIlib_source_t* p_sources = nullptr;
+
+    NDIlib_destroy();
     while(!no_sources)
     {
         qDebug() << "looking for sources ...\n";
@@ -46,7 +49,6 @@ void Receiver::GetFrame(NDIlib_video_frame_v2_t &frame)
 
     if (result == NDIlib_frame_type_video)
     {
-//        qDebug() << "video xres is" << frame.xres << "\n";
         if (frame.p_metadata) {
             // XML video metadata information.
 //            qDebug() <<"XML video metadata"<< frame.p_metadata << ".\n";

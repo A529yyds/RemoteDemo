@@ -36,7 +36,7 @@ Sender::Sender(const QString &name, QObject *obj) : QObject(obj)
     _videoFrame.frame_rate_D = 1001;
     _videoFrame.picture_aspect_ratio = 16.0f/9.0f;
     _videoFrame.frame_format_type = NDIlib_frame_format_type_progressive;
-    _opt = new OptFFmpeg(W_4K, H_4K, nullptr);
+//    _opt = new OptFFmpeg(W_4K, H_4K, nullptr);
 }
 
 Sender::~Sender()
@@ -108,12 +108,12 @@ void Sender::SendFrame(video_frame vf)
     _videoFrame.p_data = (uint8_t*)p_packet;
     _videoFrame.data_size_in_bytes = packet_size;
     _videoFrame.p_metadata = "reinterpret_cast<const char*>(vf.p_data)\n";
-    if(p_packet->flags == 1)
-    {
-        uint8_t* pData = (uint8_t*)(p_packet + 1);
-        qDebug() << "send data size is " << p_packet->data_size << "; sender p_packet.pts:" << p_packet->pts << "flags status is " << p_packet->flags;
-        _opt->Write1Frame2File(packet_size, reinterpret_cast<const char*>(pData), "Sender");
-    }
+//    if(p_packet->flags == 1)
+//    {
+//        uint8_t* pData = (uint8_t*)(p_packet + 1);
+//        qDebug() << "send data size is " << p_packet->data_size << "; sender p_packet.pts:" << p_packet->pts << "flags status is " << p_packet->flags;
+//        _opt->Write1Frame2File(packet_size, reinterpret_cast<const char*>(pData), "Sender");
+//    }
     NDIlib_send_send_video_async_v2(_ndiSend, &_videoFrame);
 
 }

@@ -1,21 +1,3 @@
-#ifndef RECEIVER_H
-#define RECEIVER_H
-#include <QObject>
-#include <cstddef>
-#include <Processing.NDI.Advanced.h>
-
-
-class Receiver: public QObject
-{
-    Q_OBJECT
-public:
-    Receiver(QObject *obj = nullptr);
-    ~Receiver();
-    void GetFrame(NDIlib_video_frame_v2_t &frame);
-    void GetCompressedPacket();
-
-private:
-    NDIlib_recv_instance_t _ndiRecv;
-};
-
-#endif // RECEIVER_H
+version https://git-lfs.github.com/spec/v1
+oid sha256:730044788871d607497672bb5334ad0b996a07e4f73b62141792f1c69fe4621f
+size 379

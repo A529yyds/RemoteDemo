@@ -20,8 +20,12 @@ ScreenShotTask::ScreenShotTask(QObject *obj): QThread(obj), m_running(true)
 
 ScreenShotTask::~ScreenShotTask()
 {
+    wait(50);
     if(m_OptFFmpeg)
+    {
+//        m_OptFFmpeg->CloseFile();
         m_OptFFmpeg->CleanEncoder();
+    }
     DELETE(m_OptFFmpeg);
     DELETE(m_pSender);
 }
@@ -37,6 +41,7 @@ void ScreenShotTask::run()
     QScreen *screen = QGuiApplication::primaryScreen();
     if(!screen) return;
     m_OptFFmpeg = new OptFFmpeg(W_4K, H_4K, this);
+    m_OptFFmpeg->OpenFile();
     // config video frames' format
     m_pSender = new Sender("HEVC HX TEST", this);
     QQueue<QByteArray> hevcCache;
@@ -51,16 +56,15 @@ void ScreenShotTask::run()
             if (m_OptFFmpeg->EncodeFrame(image.constBits(), videoFrame, image.bytesPerLine())) {
                 QByteArray frame(reinterpret_cast<const char*>(videoFrame.p_data), videoFrame.data_size);
                 if(videoFrame.is_keyframe == 1){
-                    m_OptFFmpeg->CacheWrite(frame);
-                    m_OptFFmpeg->Write1Frame2File(frame.size(), frame.data(), "ScreenShotTaskFrame");
+//                    m_OptFFmpeg->CacheWrite(frame);
+//                    m_OptFFmpeg->Write1Frame2File(frame.size(), frame.data(), "ScreenShotTaskFrame");
                 }
                 m_OptFFmpeg->WriteFrames2File(frame.size(), frame.data());
                 m_pSender->SendFrame(videoFrame);
-
             }
         }
-        m_OptFFmpeg->CloseFile();
-        m_OptFFmpeg->Cache2File("senderData.h265");
+        m_OptFFmpeg->CloseFile(false);
+//        m_OptFFmpeg->Cache2File("senderData.h265");
 
     }
 //    DELETE(rgbData);

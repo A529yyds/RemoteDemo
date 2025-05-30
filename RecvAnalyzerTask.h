@@ -1,28 +1,3 @@
-#ifndef RECVANALYZERTASK_H
-#define RECVANALYZERTASK_H
-#include <QImage>
-#include <QThread>
-class OptFFmpeg;
-class Receiver;
-class RecvAnalyzerTask: public QThread
-{
-    Q_OBJECT
-public:
-    explicit RecvAnalyzerTask(QObject *obj = nullptr);
-    ~RecvAnalyzerTask();
-    void stop();
-
-private:
-    void run() override;
-
-private:
-    bool m_running;
-    OptFFmpeg *m_OptFFmpeg;
-    Receiver *m_pRecv;
-
-signals:
-    void signalRecvImage(QImage img);
-
-};
-
-#endif // RECVANALYZERTASK_H
+version https://git-lfs.github.com/spec/v1
+oid sha256:225bf5e3e03b9d78905e292b9d51616cad631e8e98ea7cd2433d663a8f174f00
+size 481

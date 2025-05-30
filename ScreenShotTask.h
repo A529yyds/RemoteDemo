@@ -1,23 +1,3 @@
-#ifndef SCREENSHOTTASK_H
-#define SCREENSHOTTASK_H
-#include <QThread>
-class OptFFmpeg;
-class Sender;
-class ScreenShotTask: public QThread
-{
-    Q_OBJECT
-public:
-    ScreenShotTask(QObject *parent = nullptr);
-    ~ScreenShotTask();
-    void stop();
-
-protected:
-    void run() override;
-
-private:
-    bool m_running;
-    OptFFmpeg *m_OptFFmpeg;
-    Sender *m_pSender;
-};
-
-#endif // SCREENSHOTTASK_H
+version https://git-lfs.github.com/spec/v1
+oid sha256:034461987b5f9775c51ea91060cb359fad1769b672a96f7f49cd93a68d0f66a1
+size 396

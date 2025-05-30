@@ -10,18 +10,132 @@ extern "C" {
 }
 
 
-#include <iostream>
-#include <fstream>
 const int BUF_SIZE = 8192;
 #define MAX_CACHE_SIZE 5
-std::ofstream _outFile("sendPlayData.h265", std::ios::binary);
-std::ofstream _outFile1("recvPlayData.h265", std::ios::binary);
+#define SEND_PLAY_FILE "sendPlayData.h265"
+#define RECV_PLAY_FILE "recvPlayData.h265"
 
 
 OptFFmpeg::OptFFmpeg(int w, int h, QObject *obj): QObject(obj), m_iWidth(w), m_iHeight(h)
 {
     InitVariant();
 }
+
+void OptFFmpeg::InitVariant()
+{
+    m_pEnCodecCtx = nullptr;
+    m_pEnSwsCtx = nullptr;
+    m_pDeCodecCtx = nullptr;
+    m_pDeSwsCtx = nullptr;
+    m_pEncoder = nullptr;
+    m_pDecoder = nullptr;
+    m_pFrame = nullptr;
+    m_pDeFrame = nullptr;
+    m_pDeRgbFrame = nullptr;
+    m_pDecoderParser = nullptr;
+    m_pDePkt = nullptr;
+    rgb_buffer = nullptr;
+    _dataCache.clear();
+}
+
+bool OptFFmpeg::InitEncoder()
+{
+//    m_pEncoder =  avcodec_find_encoder_by_name("libx265");//
+    m_pEncoder = avcodec_find_encoder(AV_CODEC_ID_HEVC);
+    if(!m_pEncoder)
+    {
+        qDebug() << "HEVC encoder not found \n";
+        return false;
+    }
+//    qDebug() << "Codec name: " << m_pEncoder->name << "\n";
+
+    m_pEnCodecCtx =  avcodec_alloc_context3(m_pEncoder);
+    m_pEnCodecCtx->width = m_iWidth;
+    m_pEnCodecCtx->height = m_iHeight;
+    m_pEnCodecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
+    m_pEnCodecCtx->time_base = AVRational{1, 25};
+    m_pEnCodecCtx->framerate = AVRational{25, 1};
+    m_pEnCodecCtx->bit_rate = 4000000;
+    m_pEnCodecCtx->gop_size = 5;
+    m_pEnCodecCtx->max_b_frames = 0;
+
+    av_opt_set(m_pEnCodecCtx->priv_data, "preset", "p4", 0);  // 示例：低延迟高性能
+    av_opt_set(m_pEnCodecCtx->priv_data, "rc", "cbr", 0);
+    av_opt_set(m_pEnCodecCtx->priv_data, "forced-idr", "1", 0);
+    av_opt_set(m_pEnCodecCtx->priv_data, "repeat-headers", "1", 0);
+//    m_pEnCodecCtx->keyint_min = 1;    // 最小关键帧间隔为 1
+//    av_opt_set(m_pEnCodecCtx->priv_data, "x265-params", "repeat-headers=1", 0); // 对 libx265 有效
+//    av_opt_set(m_pEnCodecCtx->priv_data, "preset", "llhp", 0);  // 示例：低延迟高性能
+//    av_opt_set(m_pEnCodecCtx->priv_data, "rc", "constqp", 0);   // 固定量化
+//    av_opt_set(m_pEnCodecCtx->priv_data, "qp", "25", 0);
+//    av_opt_set(m_pEnCodecCtx->priv_data, "g", "1", 0);       // 每 3 帧一个 I 帧
+//    av_opt_set(m_pEnCodecCtx->priv_data, "repeat-pps", "1", 0);
+//    av_opt_set(m_pEnCodecCtx->priv_data, "preset", "ultrafast", 0);
+//    av_opt_set(m_pEnCodecCtx->priv_data, "tune", "zerolatency", 0);
+//    av_opt_set(m_pEnCodecCtx->priv_data, "annexb", "1", 0);
+//    av_opt_set(m_pEnCodecCtx->priv_data, "repeat-headers", "1", 0);
+//    av_opt_set(m_pEnCodecCtx->priv_data, "g", "2", 0);       // 每 3 帧一个 I 帧
+//    m_pEnCodecCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+
+    av_opt_set(m_pEnCodecCtx->priv_data, "bf", "0", 0);      // 0 B-frames
+    if (avcodec_open2(m_pEnCodecCtx, m_pEncoder, nullptr) < 0) {
+        qDebug() << "Failed to open m_pDecoder";
+        return false;
+    }
+    m_pFrame = av_frame_alloc();
+    ((AVFrame*)m_pFrame)->format = m_pEnCodecCtx->pix_fmt;
+    ((AVFrame*)m_pFrame)->width = m_pEnCodecCtx->width;
+    ((AVFrame*)m_pFrame)->height = m_pEnCodecCtx->height;
+    if (av_frame_get_buffer(m_pFrame, 32) < 0) {
+           qDebug() << "Could not allocate frame buffer\n";
+           return false;
+       }
+    m_pEnSwsCtx = sws_getContext(m_iWidth, m_iHeight, AV_PIX_FMT_BGRA,
+                               m_iWidth, m_iHeight, AV_PIX_FMT_YUV420P,
+                               SWS_BILINEAR, nullptr, nullptr, nullptr);
+    if (!m_pEnSwsCtx) {
+        qDebug() << "sws_getContext failed!";
+        return false;
+    }
+    return true;
+}
+
+bool OptFFmpeg::InitDecoder()
+{
+    m_pDecoder = avcodec_find_decoder(AV_CODEC_ID_HEVC);
+    m_pDecoderParser = av_parser_init(m_pDecoder->id);
+    if(!m_pDecoder)
+    {
+        qDebug() << "HEVC decoder not found \n";
+        return false;
+    }
+    m_pDeCodecCtx =  avcodec_alloc_context3(m_pDecoder);
+    if(!m_pDeCodecCtx) return false;
+//    m_pDeCodecCtx->bit_rate = 4000000;
+//    m_pDeCodecCtx->width = m_iWidth;
+//    m_pDeCodecCtx->height = m_iHeight;
+//    m_pDeCodecCtx->time_base = AVRational{1, 30};
+//    m_pDeCodecCtx->framerate = AVRational{30, 1};
+//    m_pDeCodecCtx->gop_size = 3;
+//    m_pDeCodecCtx->max_b_frames = 0;
+//    m_pDeCodecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
+//    av_opt_set(m_pDeCodecCtx->priv_data, "repeat-headers", "1", 0);
+//    av_opt_set(m_pDeCodecCtx->priv_data, "forced-idr", "1", 0);
+//    av_opt_set(m_pDeCodecCtx->priv_data, "repeat-pps", "1", 0);
+//    av_opt_set(m_pDeCodecCtx->priv_data, "preset", "ultrafast", 0);
+//    av_opt_set(m_pDeCodecCtx->priv_data, "tune", "zerolatency", 0);
+//    av_opt_set(m_pDeCodecCtx->priv_data, "bf", "0", 0);      // 0 B-frames
+    if (avcodec_open2(m_pDeCodecCtx, m_pDecoder, nullptr) < 0) {
+        qDebug() << "Failed to open m_pDecoder";
+        return false;
+    }
+    m_pDePkt = av_packet_alloc();
+    m_pDeFrame = av_frame_alloc();
+    m_pDeRgbFrame = av_frame_alloc();
+    return true;
+
+}
+
 
 bool OptFFmpeg::EncodeFrame(const uint8_t* rgb, video_frame& videoframe, int line)
 {
@@ -34,12 +148,6 @@ bool OptFFmpeg::EncodeFrame(const uint8_t* rgb, video_frame& videoframe, int lin
     // Convert RGB32 (BGRA) to YUV420P
     sws_scale(m_pEnSwsCtx, inData, inLinesize, 0, m_iHeight,
                   m_pFrame->data, m_pFrame->linesize);
-//    if(m_iPts%3 == 0)
-//    {
-//        m_pFrame->pict_type = AV_PICTURE_TYPE_I;
-//    }
-//    else
-//        m_pFrame->pict_type = AV_PICTURE_TYPE_NONE;
     m_pFrame->pts = m_iPts++;
     int ret = avcodec_send_frame(m_pEnCodecCtx, m_pFrame);
     if (ret < 0) return false;
@@ -49,18 +157,6 @@ bool OptFFmpeg::EncodeFrame(const uint8_t* rgb, video_frame& videoframe, int lin
     pkt.data = nullptr;
     pkt.size = 0;
     ret = avcodec_receive_packet(m_pEnCodecCtx, &pkt);
-
-//    m_pExtraData = m_pEnCodecCtx->extradata;
-//    m_iExtraDataSize = m_pEnCodecCtx->extradata_size;
-//    if (m_pEnCodecCtx->extradata && m_pEnCodecCtx->extradata_size > 0) {
-//        // 成功获取 extradata，通常包含 VPS/SPS/PPS
-//        FILE* f = fopen("extradata.h265", "wb");
-//        fwrite(m_pEnCodecCtx->extradata, 1, m_pEnCodecCtx->extradata_size, f);
-//        fclose(f);
-
-//        qDebug() << "Encoderctx is keyframe\n";
-//    }
-
     bool result = false;
     if (ret == 0) {
         if(pkt.data == nullptr)
@@ -220,7 +316,49 @@ bool OptFFmpeg::DecodeFrame(const uint8_t *data, int size, QImage &image)
 //        image = img.copy();
 //        return true;
 //    }
-//    return false;
+    //    return false;
+}
+
+QImage OptFFmpeg::DecodeFrame(const uint8_t *data, int len)
+{
+    QImage image;
+        while (len > 0) {
+            int parsed = av_parser_parse2(m_pDecoderParser, m_pDeCodecCtx, &m_pDePkt->data, &m_pDePkt->size,
+                                          data, len, AV_NOPTS_VALUE, AV_NOPTS_VALUE, 0);
+            data += parsed;
+            len -= parsed;
+
+            if (m_pDePkt->size > 0) {
+                avcodec_send_packet(m_pDeCodecCtx, m_pDePkt);
+                while (avcodec_receive_frame(m_pDeCodecCtx, m_pDeFrame) == 0) {
+                    int w = m_pDeFrame->width;
+                    int h = m_pDeFrame->height;
+
+                    // 分配 RGB 图像空间
+                    AVFrame* rgb_frame = av_frame_alloc();
+                    int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_RGB24, w, h, 1);
+                    uint8_t* buffer = (uint8_t*)av_malloc(num_bytes * sizeof(uint8_t));
+                    av_image_fill_arrays(rgb_frame->data, rgb_frame->linesize, buffer,
+                                         AV_PIX_FMT_RGB24, w, h, 1);
+
+                    // 色彩空间转换
+                    m_pDeSwsCtx = sws_getContext(w, h, (AVPixelFormat)m_pDeFrame->format,
+                                             w, h, AV_PIX_FMT_RGB24, SWS_BILINEAR, nullptr, nullptr, nullptr);
+
+                    sws_scale(m_pDeSwsCtx, m_pDeFrame->data, m_pDeFrame->linesize, 0, h,
+                              rgb_frame->data, rgb_frame->linesize);
+
+                    // 构建 QImage（假设 RGB24，行对齐）
+                    image = QImage(rgb_frame->data[0], w, h, rgb_frame->linesize[0],
+                                   QImage::Format_RGB888).copy(); // copy 避免指针悬挂
+
+                    av_free(buffer);
+                    av_frame_free(&rgb_frame);
+//                    sws_freeContext(m_pDeSwsCtx);
+                }
+            }
+        }
+        return image;
 }
 
 void OptFFmpeg::CleanDecoder()
@@ -240,9 +378,9 @@ void OptFFmpeg::CleanDecoder()
     }
 }
 
-void OptFFmpeg::CacheWrite(QByteArray frame)
+void OptFFmpeg::Data2Cache(QByteArray frame)
 {
-    if (_dataCache.size() >= 1)
+    if (_dataCache.size() >= MAX_CACHE_SIZE)
            _dataCache.dequeue();  // 移除最早的一帧
     _dataCache.enqueue(frame);  // 添加新帧
 }
@@ -274,6 +412,14 @@ void OptFFmpeg::Write1Frame2File(int size, const char *data, const char *filenam
     out_file.flush();
     qDebug() << "one frame size is " << size << "\n";
     out_file.close();
+}
+
+void OptFFmpeg::OpenFile(bool bSender)
+{
+    if(bSender)
+        _outFile.open(SEND_PLAY_FILE, std::ios::binary);
+    else
+        _outFile1.open(RECV_PLAY_FILE, std::ios::binary);
 }
 
 void OptFFmpeg::WriteFrames2File(int size, const char *data, bool bSender)
@@ -309,116 +455,3 @@ void OptFFmpeg::CloseFile(bool bSender)
     }
 }
 
-void OptFFmpeg::InitVariant()
-{
-    m_pEnCodecCtx = nullptr;
-    m_pEnSwsCtx = nullptr;
-    m_pDeCodecCtx = nullptr;
-    m_pDeSwsCtx = nullptr;
-    m_pEncoder = nullptr;
-    m_pDecoder = nullptr;
-    m_pFrame = nullptr;
-    _dataCache.clear();
-}
-
-bool OptFFmpeg::InitEncoder()
-{
-//    m_pEncoder =  avcodec_find_encoder_by_name("libx265");//
-    m_pEncoder = avcodec_find_encoder(AV_CODEC_ID_HEVC);
-    if(!m_pEncoder)
-    {
-        qDebug() << "HEVC encoder not found \n";
-        return false;
-    }
-    qDebug() << "Codec name: " << m_pEncoder->name << "\n";
-
-    m_pEnCodecCtx =  avcodec_alloc_context3(m_pEncoder);
-    m_pEnCodecCtx->width = m_iWidth;
-    m_pEnCodecCtx->height = m_iHeight;
-    m_pEnCodecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
-    m_pEnCodecCtx->time_base = AVRational{1, 25};
-    m_pEnCodecCtx->framerate = AVRational{25, 1};
-    m_pEnCodecCtx->bit_rate = 4000000;
-    m_pEnCodecCtx->gop_size = 5;
-    m_pEnCodecCtx->max_b_frames = 0;
-//    m_pEnCodecCtx->keyint_min = 1;    // 最小关键帧间隔为 1
-//    av_opt_set(m_pEnCodecCtx->priv_data, "x265-params", "repeat-headers=1", 0); // 对 libx265 有效
-
-//    av_opt_set(m_pEnCodecCtx->priv_data, "preset", "llhp", 0);  // 示例：低延迟高性能
-//    av_opt_set(m_pEnCodecCtx->priv_data, "rc", "constqp", 0);   // 固定量化
-//    av_opt_set(m_pEnCodecCtx->priv_data, "qp", "25", 0);
-
-    av_opt_set(m_pEnCodecCtx->priv_data, "preset", "p4", 0);  // 示例：低延迟高性能
-    av_opt_set(m_pEnCodecCtx->priv_data, "rc", "cbr", 0);
-    av_opt_set(m_pEnCodecCtx->priv_data, "forced-idr", "1", 0);
-    av_opt_set(m_pEnCodecCtx->priv_data, "repeat-headers", "1", 0);
-//    av_opt_set(m_pEnCodecCtx->priv_data, "g", "1", 0);       // 每 3 帧一个 I 帧
-//    av_opt_set(m_pEnCodecCtx->priv_data, "repeat-pps", "1", 0);
-//    av_opt_set(m_pEnCodecCtx->priv_data, "preset", "ultrafast", 0);
-//    av_opt_set(m_pEnCodecCtx->priv_data, "tune", "zerolatency", 0);
-//    av_opt_set(m_pEnCodecCtx->priv_data, "annexb", "1", 0);
-//    av_opt_set(m_pEnCodecCtx->priv_data, "repeat-headers", "1", 0);
-//    m_pEnCodecCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-//    av_opt_set(m_pEnCodecCtx->priv_data, "g", "2", 0);       // 每 3 帧一个 I 帧
-    av_opt_set(m_pEnCodecCtx->priv_data, "bf", "0", 0);      // 0 B-frames
-
-    if (avcodec_open2(m_pEnCodecCtx, m_pEncoder, nullptr) < 0) {
-        qDebug() << "Failed to open m_pDecoder";
-        return false;
-    }
-
-    m_pFrame = av_frame_alloc();
-    ((AVFrame*)m_pFrame)->format = m_pEnCodecCtx->pix_fmt;
-    ((AVFrame*)m_pFrame)->width = m_pEnCodecCtx->width;
-    ((AVFrame*)m_pFrame)->height = m_pEnCodecCtx->height;
-    if (av_frame_get_buffer(m_pFrame, 32) < 0) {
-           qDebug() << "Could not allocate frame buffer\n";
-           return false;
-       }
-    m_pEnSwsCtx = sws_getContext(m_iWidth, m_iHeight, AV_PIX_FMT_BGRA,
-                               m_iWidth, m_iHeight, AV_PIX_FMT_YUV420P,
-                               SWS_BILINEAR, nullptr, nullptr, nullptr);
-    if (!m_pEnSwsCtx) {
-        qDebug() << "sws_getContext failed!";
-        return false;
-    }
-    return true;
-}
-
-bool OptFFmpeg::InitDecoder()
-{
-    m_pDecoder = avcodec_find_decoder(AV_CODEC_ID_HEVC);
-    m_pDecoderParser = av_parser_init(m_pDecoder->id);
-    if(!m_pDecoder)
-    {
-        qDebug() << "HEVC decoder not found \n";
-        return false;
-    }
-    m_pDeCodecCtx =  avcodec_alloc_context3(m_pDecoder);
-    if(!m_pDeCodecCtx) return false;
-//    m_pDeCodecCtx->bit_rate = 4000000;
-//    m_pDeCodecCtx->width = m_iWidth;
-//    m_pDeCodecCtx->height = m_iHeight;
-//    m_pDeCodecCtx->time_base = AVRational{1, 30};
-//    m_pDeCodecCtx->framerate = AVRational{30, 1};
-//    m_pDeCodecCtx->gop_size = 3;
-//    m_pDeCodecCtx->max_b_frames = 0;
-//    m_pDeCodecCtx->pix_fmt = AV_PIX_FMT_YUV420P;
-//    av_opt_set(m_pDeCodecCtx->priv_data, "repeat-headers", "1", 0);
-//    av_opt_set(m_pDeCodecCtx->priv_data, "forced-idr", "1", 0);
-//    av_opt_set(m_pDeCodecCtx->priv_data, "repeat-pps", "1", 0);
-//    av_opt_set(m_pDeCodecCtx->priv_data, "preset", "ultrafast", 0);
-//    av_opt_set(m_pDeCodecCtx->priv_data, "tune", "zerolatency", 0);
-//    av_opt_set(m_pDeCodecCtx->priv_data, "bf", "0", 0);      // 0 B-frames
-
-    if (avcodec_open2(m_pDeCodecCtx, m_pDecoder, nullptr) < 0) {
-        qDebug() << "Failed to open m_pDecoder";
-        return false;
-    }
-    m_pDePkt = av_packet_alloc();
-    m_pDeSwsCtx = nullptr;
-    m_pDeFrame = av_frame_alloc();
-    m_pDeRgbFrame = av_frame_alloc();
-    return true;
-
-}

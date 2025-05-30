@@ -26,10 +26,10 @@ Remote::~Remote()
 {
     DELETE(m_pScreenShotTask);
     DELETE(m_pRecvImgTask);
-    DELETE(m_pRecvWidget);
     DELETE(m_pImageLbl);
-    DELETE(m_pSendWidget);
+    DELETE(m_pRecvWidget);
     DELETE(m_pExitSenderBtn);
+    DELETE(m_pSendWidget);
     DELETE(ui);
 }
 
@@ -58,14 +58,22 @@ void Remote::slotBtnClicked()
 void Remote::slotStopSender()
 {
     if(sender()->objectName() == "StopSender")
+    {
         m_pScreenShotTask->stop();
+        m_pSendWidget->close();
+    }
     else if(sender()->objectName() == "StopRecv")
+    {
         m_pRecvImgTask->stop();
-    this->show();
+        m_pRecvWidget->close();
+    }
+//    this->show();
+    close();
 }
 
 void Remote::slotRecvImage(QImage img)
 {
+    this->hide();
     m_pRecvWidget->show();
     qDebug() << "slotRecvImage img size " << img.size() << "\n";
     m_pImageLbl->setPixmap(QPixmap::fromImage(img));
@@ -76,7 +84,7 @@ void Remote::Init()
     m_pScreenShotTask = new ScreenShotTask(this);
     m_pRecvImgTask = new RecvAnalyzerTask(this);
     m_pRecvWidget = new QWidget();
-    m_pRecvWidget->setGeometry(0, 0, 200, 60);// W_4K, H_4K);
+    m_pRecvWidget->setGeometry(0, 0, W_4K, H_4K);
     m_pImageLbl = new QLabel(m_pRecvWidget);
     m_pImageLbl->setGeometry(m_pRecvWidget->geometry());
     m_pRecvWidget->hide();

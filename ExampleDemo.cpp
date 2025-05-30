@@ -12,8 +12,10 @@
 #endif // _WIN32
 
 #include "OptFFmpeg.h"
+#include "Sender.h"
 
-OptFFmpeg *_opt = new OptFFmpeg(1920, 1080, nullptr);
+//class OptFFmpeg;
+OptFFmpeg * _opt = nullptr;
 
 static std::atomic<bool> exit_loop(false);
 static void sigint_handler(int)
@@ -167,6 +169,13 @@ void send_aac_audio(NDIlib_send_instance_t pNDI_send)
 int iCurTimes = 0;
 bool bGetKey2File = false;
 
+//Sender *_sender = new Sender("senderDemo", nullptr);
+void sendFrame(int frame_num, const stream_info_type& stream_info)
+{
+    const video_frame& src_frame = stream_info.p_frames[frame_num];
+//    _sender->SendFrame(src_frame);
+}
+
 int senderStart()
 {
     signal(SIGINT, sigint_handler);
@@ -182,11 +191,59 @@ int senderStart()
     const int num_frames = video_highQ_info.num_frames;
     video_send_data highQ_data[2];
     init_video_data(highQ_data, 2, video_highQ_info, NDIlib_FourCC_video_type_ex_HEVC_highest_bandwidth);
-//    std::ofstream out_file("demosenddata.h265", std::ios::binary);
-//    if (!out_file.is_open()) {
-//        std::cerr << "无法打开输出文件" << std::endl;
-//    }
+    _opt = new OptFFmpeg(1920, 1080, nullptr);
 
+    for (int frame_num = 0, send_frame = 0; !exit_loop; frame_num = (frame_num + 1) % num_frames) {
+        if (NDIlib_send_is_keyframe_required(pNDI_send)) {
+            frame_num = 0;
+        }
+        sendFrame(frame_num, video_highQ_info);
+
+        if(iCurTimes == 30)
+            break;
+
+        if(bGetKey2File)
+            iCurTimes++;
+
+        uint32_t bKey = video_highQ_info.p_frames[frame_num].is_keyframe ? NDIlib_compressed_packet_t::flags_keyframe : NDIlib_compressed_packet_t::flags_none;
+
+        if(bKey == 1 && frame_num > 300)
+        {
+            qDebug() << "send write frame num is " << frame_num;
+            QByteArray f(reinterpret_cast<const char*>(video_highQ_info.p_frames[frame_num].p_data), video_highQ_info.p_frames[frame_num].data_size);
+            _opt->Write1Frame2File(f.size(), f.data(), "sendFrame");
+            bGetKey2File = true;
+        }
+        send_frame = (send_frame + 1) % 2;
+    }
+    NDIlib_send_send_video_scatter_async(pNDI_send, nullptr, nullptr);
+    audio_thread.join();
+    NDIlib_send_destroy(pNDI_send);
+    NDIlib_destroy();
+    if(_opt)
+    {
+        delete _opt;
+        _opt = nullptr;
+    }
+    return 0;
+}
+
+int senderStart2()
+{
+    signal(SIGINT, sigint_handler);
+    if (!NDIlib_initialize())
+        return 0;
+    NDIlib_send_create_t NDI_send_description;
+    NDI_send_description.p_ndi_name = "HEVC HX Test";
+    NDI_send_description.clock_video = true;
+    NDI_send_description.clock_audio = true;
+    NDIlib_send_instance_t pNDI_send = NDIlib_send_create_v2(&NDI_send_description, /* See note above */nullptr);
+    if (!pNDI_send) return 0;
+    std::thread audio_thread(send_aac_audio, pNDI_send);
+    const int num_frames = video_highQ_info.num_frames;
+    video_send_data highQ_data[2];
+    init_video_data(highQ_data, 2, video_highQ_info, NDIlib_FourCC_video_type_ex_HEVC_highest_bandwidth);
+    _opt = new OptFFmpeg(1920, 1080, nullptr);
     for (int frame_num = 0, send_frame = 0; !exit_loop; frame_num = (frame_num + 1) % num_frames) {
         if (NDIlib_send_is_keyframe_required(pNDI_send)) {
             frame_num = 0;
@@ -207,27 +264,22 @@ int senderStart()
         {
             qDebug() << "send write frame num is " << frame_num << ", pts is " << highQ_data[send_frame].packet.pts;
             QByteArray f(reinterpret_cast<const char*>(highQ_scatter.p_data_blocks[1]), highQ_scatter.p_data_blocks_size[1]);
-            _opt->CacheWrite(f);
+            _opt->Data2Cache(f);
             bGetKey2File = true;
         }
-//        out_file.write(reinterpret_cast<const char*>(highQ_scatter.p_data_blocks[1]), highQ_scatter.p_data_blocks_size[1]);
-//        out_file.flush();
-//        if(frame_num % 10 == 0)
-//            qDebug() << "current send frame = " << frame_num;
         NDIlib_send_send_video_scatter_async(pNDI_send, &highQ_frame, &highQ_scatter);
         send_frame = (send_frame + 1) % 2;
-//        if(iCurTimes == 3 && frame_num == (num_frames - 1))
-//            exit_loop = true;
-//        if(frame_num == (num_frames - 1))
-//            iCurTimes++;
     }
     _opt->Cache2File("hqSendKeyFrame");
-//    out_file.close();
+    if(_opt)
+    {
+        delete _opt;
+        _opt = nullptr;
+    }
     NDIlib_send_send_video_scatter_async(pNDI_send, nullptr, nullptr);
     audio_thread.join();
     NDIlib_send_destroy(pNDI_send);
     NDIlib_destroy();
-
     // Finished
     return 0;
 }
@@ -396,16 +448,12 @@ int receiverStart()
     // Destroy the NDI finder. We needed to have access to the pointers to p_sources[0]
     NDIlib_find_destroy(pNDI_find);
 
-//    std::ofstream out_file("demorecvdata.h265", std::ios::binary);
-//    if (!out_file.is_open()) {
-//        std::cerr << "无法打开输出文件" << std::endl;
-//    }
-
     // Run for one minute
     using namespace std::chrono;
 
     uint8_t* pData;
     size_t iSize;
+    _opt = new OptFFmpeg(1920, 1080, nullptr);
     for (const auto start = high_resolution_clock::now(); high_resolution_clock::now() - start < minutes(1);) {
         // The descriptors
         NDIlib_video_frame_v2_t video_frame;
@@ -415,8 +463,6 @@ int receiverStart()
         // No data
         case NDIlib_frame_type_none:
         {
-//            if(out_file.is_open())
-//                out_file.close();
             if(!bWriteOver)
             {
                 _opt->Cache2File("hqRecvKeyFrame");
@@ -445,23 +491,8 @@ int receiverStart()
                         iSize = p_packet->data_size;
                         qDebug() << "recv write frame pts is " << p_packet->pts;
                         QByteArray f(reinterpret_cast<const char*>(pData),iSize);
-                        _opt->CacheWrite(f);
+                        _opt->Data2Cache(f);
                     }
-//                    if(p_packet && iSize != p_packet->data_size){
-//                        pData = (uint8_t*)(p_packet + 1);
-//                        iSize = p_packet->data_size;
-//                        qDebug() <<"demo video recv p_packet size is"<< video_frame.data_size_in_bytes << ".\n";
-//                        qDebug() <<"demo video recv p_hevc_data size is"<< iSize << ".\n";
-//                        if (!out_file.is_open()) {
-//                            out_file.open("demorecvdata.h265", std::ios::binary);
-//                        }
-
-//                        out_file.write(reinterpret_cast<const char*>(pData), iSize);
-//                        out_file.flush();
-        //                m_OptFFmpeg->DecodeFrame(pData, iSize, img);
-//                    }
-
-
                 }
                 NDIlib_recv_free_video_v2(pNDI_recv, &video_frame);
                 break;
@@ -489,6 +520,11 @@ int receiverStart()
                 printf("Receiver connection status changed.\n");
                 break;
         }
+    }
+    if(_opt)
+    {
+        delete _opt;
+        _opt = nullptr;
     }
     // Destroy the receiver
     NDIlib_recv_destroy(pNDI_recv);
